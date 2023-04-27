@@ -50,7 +50,9 @@ defmodule OpenTelemetryDecorator do
         try do
           result = unquote(body)
 
-          included_attrs = Attributes.get(Kernel.binding(), unquote(include), result)
+          included_attrs =
+            OpenTelemetryDecorator.Attributes.get(Kernel.binding(), unquote(include), result)
+
           OpenTelemetry.Span.set_attributes(span_ctx, included_attrs)
 
           result
