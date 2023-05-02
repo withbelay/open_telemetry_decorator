@@ -12,6 +12,15 @@ defmodule OpenTelemetryDecorator.AttributesTest do
       assert Attributes.get([obj: %{id: 1}], [[:obj, :id]]) == [obj_id: 1]
     end
 
+    test "handles nested of :result" do
+      assert Attributes.get([obj: %{id: 1}], [[:result, :a]], %{a: "b"}) == [result_a: "b"]
+    end
+
+    test "handles nested access into string-key maps" do
+      assert Attributes.get([obj: %{"id" => 1}], [[:obj, "id"], [:result, "a"]], %{"a" => "b"}) ==
+               [{:obj_id, 1}, {:result_a, "b"}]
+    end
+
     test "handles flat and nested attributes" do
       attrs =
         Attributes.get([error: "whoops", obj: %{id: 1}], [
@@ -128,5 +137,8 @@ defmodule OpenTelemetryDecorator.AttributesTest do
     test "when prefix is configured, prefixes attribute names" do
       assert Attributes.get([id: 1], [:id]) == ["my.id": 1]
     end
+  end
+
+  describe "conversion of attribute value to acceptable type" do
   end
 end
