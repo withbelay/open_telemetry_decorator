@@ -1,5 +1,20 @@
 defmodule OpenTelemetryDecorator.Attributes do
   @moduledoc false
+  require OpenTelemetry.Tracer, as: Tracer
+
+  def set(name, value) do
+    Tracer.set_attribute(name, to_otlp_value(value))
+  end
+
+  def set(attributes) when is_struct(attributes) do
+    set(Map.from_struct(attributes))
+  end
+
+  def set(attributes) do
+    attributes
+    |> Enum.map(fn {key, value} -> {key, to_otlp_value(value)} end)
+    |> Tracer.set_attributes()
+  end
 
   def get(all_attributes, requested_attributes) do
     Enum.reduce(requested_attributes, [], fn requested_attribute, taken_attributes ->
@@ -13,7 +28,7 @@ defmodule OpenTelemetryDecorator.Attributes do
   defp get_attribute(attributes, [attribute_name | nested_keys]) do
     requested_obj = attributes |> Keyword.get(attribute_name) |> as_map()
 
-    if value = get_in(requested_obj, nested_keys) do
+    if value = recursive_get_in(requested_obj, nested_keys) do
       {derived_name([attribute_name | nested_keys]), to_otlp_value(value)}
     end
   end
@@ -22,6 +37,18 @@ defmodule OpenTelemetryDecorator.Attributes do
     if value = Keyword.get(attributes, attribute_name) do
       {derived_name(attribute_name), to_otlp_value(value)}
     end
+  end
+
+  defp recursive_get_in(obj, []), do: obj
+
+  defp recursive_get_in(obj, [key | nested_keys]) do
+    nested_obj =
+      case get_in(obj, [key]) do
+        nested_obj when is_struct(nested_obj) -> Map.from_struct(nested_obj)
+        nested_obj -> nested_obj
+      end
+
+    recursive_get_in(nested_obj, nested_keys)
   end
 
   defp derived_name([attribute_name | nested_keys]) do
