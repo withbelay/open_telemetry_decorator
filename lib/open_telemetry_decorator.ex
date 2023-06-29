@@ -40,13 +40,21 @@ defmodule OpenTelemetryDecorator do
   """
   def with_span(span_name, opts \\ [], body, context) do
     include = Keyword.get(opts, :include, [])
-    Validator.validate_args(span_name, include)
+    links = Keyword.get(opts, :links, [])
+    Validator.validate_name(span_name)
+    Validator.validate_paths(include, "include")
+    Validator.validate_paths(links, "links")
 
     quote location: :keep do
       require OpenTelemetry.Tracer, as: Tracer
       require OpenTelemetry.Span, as: Span
 
-      Tracer.with_span unquote(span_name) do
+      otel_links =
+        Kernel.binding()
+        |> Attributes.get(unquote(links), false)
+        |> Keyword.values()
+
+      Tracer.with_span unquote(span_name), %{links: otel_links} do
         span_context = Tracer.current_span_ctx()
 
         input_params =

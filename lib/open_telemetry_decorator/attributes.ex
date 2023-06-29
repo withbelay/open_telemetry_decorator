@@ -27,26 +27,29 @@ defmodule OpenTelemetryDecorator.Attributes do
     set(Tracer.current_span_ctx(), attributes)
   end
 
-  def get(all_attributes, requested_attributes) do
-    Enum.reduce(requested_attributes, [], fn requested_attribute, taken_attributes ->
-      case get_attribute(all_attributes, requested_attribute) do
-        {name, value} -> Keyword.put(taken_attributes, name, value)
-        _ -> taken_attributes
-      end
-    end)
+  def get(all_attributes, requested_attributes, values_as_otlp \\ true) do
+    otlp_attributes =
+      Enum.reduce(requested_attributes, [], fn requested_attribute, taken_attributes ->
+        case get_attribute(all_attributes, requested_attribute) do
+          {name, value} -> Keyword.put(taken_attributes, name, value)
+          _ -> taken_attributes
+        end
+      end)
+
+    if values_as_otlp, do: values_to_otlp(otlp_attributes), else: otlp_attributes
   end
 
   defp get_attribute(attributes, [attribute_name | nested_keys]) do
     requested_obj = attributes |> Keyword.get(attribute_name) |> as_map()
 
     if value = recursive_get_in(requested_obj, nested_keys) do
-      {derived_name([attribute_name | nested_keys]), to_otlp_value(value)}
+      {derived_name([attribute_name | nested_keys]), value}
     end
   end
 
   defp get_attribute(attributes, attribute_name) do
     if value = Keyword.get(attributes, attribute_name) do
-      {derived_name(attribute_name), to_otlp_value(value)}
+      {derived_name(attribute_name), value}
     end
   end
 
@@ -99,6 +102,10 @@ defmodule OpenTelemetryDecorator.Attributes do
   defp as_map(obj) when is_struct(obj), do: Map.from_struct(obj)
   defp as_map(obj) when is_map(obj), do: obj
   defp as_map(_), do: %{}
+
+  defp values_to_otlp(values) do
+    Enum.map(values, fn {key, value} -> {key, to_otlp_value(value)} end)
+  end
 
   defguard is_otlp_value(value)
            when is_binary(value) or is_integer(value) or is_boolean(value) or is_float(value)

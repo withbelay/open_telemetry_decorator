@@ -16,6 +16,9 @@ defmodule OpenTelemetryDecoratorTest do
     defmodule Example do
       use OpenTelemetryDecorator
 
+      @decorate with_span("Example.with.link", include: [:msg], links: [[:msg, :causal_link]])
+      def link(msg), do: {:ok, msg}
+
       @decorate with_span("Example.step", include: [:id, :result])
       def step(id), do: {:ok, id}
 
@@ -57,6 +60,38 @@ defmodule OpenTelemetryDecoratorTest do
 
       @decorate with_span("Example.with_error")
       def with_error, do: OpenTelemetryDecorator.Attributes.set(:error, "ruh roh!")
+    end
+
+    test "when `link` option present, the traced span will have the specified OTLP Link" do
+      # Simulate a trace that has completed
+      causal_span = Tracer.start_span("causal-span")
+      span_ctx(span_id: causal_span_id) = Span.end_span(causal_span)
+
+      # Create a link to that other trace
+      link_to_causal_span = OpenTelemetry.link(causal_span)
+
+      # Simulate receiving a message containing a link to a causal span
+      Example.link(%{causal_link: link_to_causal_span})
+
+      # Validate that the "traced" span was created with the link
+      assert_receive {:span, span(name: "Example.with.link", links: links)}
+
+      [link] = get_span_links(links)
+
+      link(span_id: ^causal_span_id) = link
+    end
+
+    test "when `link` option present and target value is `:undefined`, the traced span will have no OTLP Links" do
+      # `:undefined` is the only other valid parameter for `link` function
+      link_to_causal_span = OpenTelemetry.link(:undefined)
+
+      # Simulate receiving a message containing a link to a causal span
+      Example.link(%{causal_link: link_to_causal_span})
+
+      # Validate that the "traced" span was created with the link
+      assert_receive {:span, span(name: "Example.with.link", links: links)}
+
+      [] = get_span_links(links)
     end
 
     test "does not modify inputs or function result" do

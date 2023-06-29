@@ -3,41 +3,39 @@ defmodule OpenTelemetryDecorator.ValidatorTest do
 
   alias OpenTelemetryDecorator.Validator
 
-  describe "validate_args" do
-    test "event name must be a non-empty string" do
-      Validator.validate_args("name_space.event", [])
+  test "event name must be a non-empty string" do
+    Validator.validate_name("name_space.event")
 
-      Validator.validate_args("A Fancier Name", [])
+    Validator.validate_name("A Fancier Name")
 
-      assert_raise ArgumentError, ~r/^span_name/, fn ->
-        Validator.validate_args("", [])
-      end
-
-      assert_raise ArgumentError, ~r/^span_name/, fn ->
-        Validator.validate_args(nil, [])
-      end
+    assert_raise ArgumentError, ~r/^span_name/, fn ->
+      Validator.validate_name("")
     end
 
-    test "attr_keys can be empty" do
-      Validator.validate_args("event", [])
+    assert_raise ArgumentError, ~r/^span_name/, fn ->
+      Validator.validate_name(nil)
+    end
+  end
+
+  test "path can be empty" do
+    Validator.validate_paths([], "test_path")
+  end
+
+  test "first reference in path must be atom" do
+    Validator.validate_paths([:variable], "test_path")
+    Validator.validate_paths([:variable, [:key1, :key2]], "test_path")
+    Validator.validate_paths([:variable, [:key1, "key2"]], "test_path")
+
+    assert_raise ArgumentError, ~r/The `test_path` option must be a list of paths/, fn ->
+      Validator.validate_paths(["variable"], "test_path")
     end
 
-    test "first reference in attrs_keys must be atom" do
-      Validator.validate_args("event", [:variable])
-      Validator.validate_args("event", [:variable, [:key1, :key2]])
-      Validator.validate_args("event", [:variable, [:key1, "key2"]])
-
-      assert_raise ArgumentError, ~r/^attr_keys/, fn ->
-        Validator.validate_args("event", ["variable"])
-      end
-
-      assert_raise ArgumentError, ~r/^attr_keys/, fn ->
-        Validator.validate_args("event", [["variable", :key]])
-      end
+    assert_raise ArgumentError, ~r/The `test_path` option must be a list of paths/, fn ->
+      Validator.validate_paths([["variable", :key]], "test_path")
     end
+  end
 
-    test "attrs_keys can contain nested lists of atoms" do
-      Validator.validate_args("event", [:variable, [:obj, :key]])
-    end
+  test "attrs_keys can contain nested lists of atoms" do
+    Validator.validate_paths([:variable, [:obj, :key]], "test_path")
   end
 end
