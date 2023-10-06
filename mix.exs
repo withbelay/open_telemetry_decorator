@@ -1,7 +1,7 @@
 defmodule OpenTelemetryDecorator.MixProject do
   use Mix.Project
 
-  @version "1.4.1"
+  @version "1.4.6"
   @github_page "https://github.com/marcdel/open_telemetry_decorator"
 
   def project do
@@ -39,11 +39,11 @@ defmodule OpenTelemetryDecorator.MixProject do
       {:credo, "~> 1.6", only: [:dev, :test], runtime: false},
       {:decorator, "~> 1.4"},
       {:dialyxir, "~> 1.2", only: :dev, runtime: false},
-      {:ex_doc, "~> 0.29.4", only: :dev, runtime: false},
-      {:excoveralls, "~> 0.16.0", only: :test, runtime: false},
+      {:ex_doc, "~> 0.30.3", only: :dev, runtime: false},
+      {:excoveralls, "~> 0.17.0", only: :test, runtime: false},
+      {:opentelemetry_exporter, "~> 1.4", only: :test},
       {:opentelemetry_api, "~> 1.2"},
-      {:opentelemetry, "~> 1.3", only: :test},
-      {:opentelemetry_exporter, "~> 1.4", only: :test}
+      {:opentelemetry, "~> 1.3", only: :test}
     ]
   end
 

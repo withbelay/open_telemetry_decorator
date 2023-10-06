@@ -16,16 +16,16 @@ defmodule OpenTelemetryDecoratorTest do
     defmodule Example do
       use OpenTelemetryDecorator
 
-      @decorate trace("Example.step", include: [:id, :result])
+      @decorate with_span("Example.step", include: [:id, :result])
       def step(id), do: {:ok, id}
 
-      @decorate trace("Example.workflow", include: [:count, :result])
+      @decorate with_span("Example.workflow", include: [:count, :result])
       def workflow(count), do: Enum.map(1..count, fn id -> step(id) end)
 
-      @decorate trace("Example.numbers", include: [:up_to])
+      @decorate with_span("Example.numbers", include: [:up_to])
       def numbers(up_to), do: [1..up_to]
 
-      @decorate trace("Example.find", include: [:id, [:user, :name], :error, :_even, :result])
+      @decorate with_span("Example.find", include: [:id, [:user, :name], :error, :_even, :result])
       def find(id) do
         _even = rem(id, 2) == 0
         user = %{id: id, name: "my user"}
@@ -39,18 +39,24 @@ defmodule OpenTelemetryDecoratorTest do
         end
       end
 
-      @decorate trace("Example.parse_params", include: [[:params, "id"]])
+      @decorate with_span("Example.parse_params", include: [[:params, "id"]])
       def parse_params(params) do
         %{"id" => id} = params
 
         id
       end
 
-      @decorate trace("Example.no_include")
+      @decorate with_span("Example.no_include")
       def no_include(opts), do: {:ok, opts}
 
-      @decorate trace("Example.with_exception")
-      def with_exception, do: File.read!("fake file")
+      @decorate with_span("Example.with_exception", include: [:file_name, :body_var])
+      def with_exception(file_name) do
+        body_var = "hello!"
+        File.read!("#{file_name}.#{body_var}")
+      end
+
+      @decorate with_span("Example.with_error")
+      def with_error, do: OpenTelemetryDecorator.Attributes.set(:error, "ruh roh!")
     end
 
     test "does not modify inputs or function result" do
@@ -67,7 +73,7 @@ defmodule OpenTelemetryDecoratorTest do
                         attributes: attrs
                       )}
 
-      assert %{count: 2} = get_span_attributes(attrs)
+      assert %{"count" => 2} = get_span_attributes(attrs)
 
       assert_receive {:span,
                       span(
@@ -76,7 +82,7 @@ defmodule OpenTelemetryDecoratorTest do
                         attributes: attrs
                       )}
 
-      assert %{id: 1} = get_span_attributes(attrs)
+      assert %{"id" => 1} = get_span_attributes(attrs)
 
       assert_receive {:span,
                       span(
@@ -85,37 +91,37 @@ defmodule OpenTelemetryDecoratorTest do
                         attributes: attrs
                       )}
 
-      assert %{id: 2} = get_span_attributes(attrs)
+      assert %{"id" => 2} = get_span_attributes(attrs)
     end
 
     test "handles simple attributes" do
       Example.find(1)
       assert_receive {:span, span(name: "Example.find", attributes: attrs)}
-      assert %{id: 1} = get_span_attributes(attrs)
+      assert %{"id" => 1} = get_span_attributes(attrs)
     end
 
     test "handles nested attributes" do
       Example.find(1)
       assert_receive {:span, span(name: "Example.find", attributes: attrs)}
-      assert %{user_name: "my user"} = get_span_attributes(attrs)
+      assert %{"user_name" => "my user"} = get_span_attributes(attrs)
     end
 
     test "handles maps with string keys" do
       Example.parse_params(%{"id" => 12})
       assert_receive {:span, span(name: "Example.parse_params", attributes: attrs)}
-      assert %{params_id: 12} = get_span_attributes(attrs)
+      assert %{"params_id" => 12} = get_span_attributes(attrs)
     end
 
     test "handles handles underscored attributes" do
       Example.find(2)
       assert_receive {:span, span(name: "Example.find", attributes: attrs)}
-      assert %{even: true} = get_span_attributes(attrs)
+      assert %{"even" => true} = get_span_attributes(attrs)
     end
 
     test "converts atoms to strings" do
       Example.step(:two)
       assert_receive {:span, span(name: "Example.step", attributes: attrs)}
-      assert %{id: ":two"} = get_span_attributes(attrs)
+      assert %{"id" => ":two"} = get_span_attributes(attrs)
     end
 
     test "does not include result unless asked for" do
@@ -127,14 +133,14 @@ defmodule OpenTelemetryDecoratorTest do
     test "does not include variables not in scope when the function exists" do
       Example.find(098)
       assert_receive {:span, span(name: "Example.find", attributes: attrs)}
-      assert Map.has_key?(get_span_attributes(attrs), :error) == false
+      assert Map.has_key?(get_span_attributes(attrs), "error") == false
     end
 
     test "does not overwrite input parameters" do
       defmodule OverwriteExample do
         use OpenTelemetryDecorator
 
-        @decorate trace("param_override", include: [:x, :y])
+        @decorate with_span("param_override", include: [:x, :y])
         def param_override(x, y) do
           x = x + 1
 
@@ -145,14 +151,14 @@ defmodule OpenTelemetryDecoratorTest do
       assert {:ok, 3} = OverwriteExample.param_override(1, 1)
 
       assert_receive {:span, span(name: "param_override", attributes: attrs)}
-      assert Map.get(get_span_attributes(attrs), :x) == 1
+      assert Map.get(get_span_attributes(attrs), "x") == 1
     end
 
     test "overwrites the default result value" do
       defmodule ExampleResult do
         use OpenTelemetryDecorator
 
-        @decorate trace("ExampleResult.add", include: [:a, :b, :result])
+        @decorate with_span("ExampleResult.add", include: [:a, :b, :result])
         def add(a, b) do
           a + b
         end
@@ -160,14 +166,14 @@ defmodule OpenTelemetryDecoratorTest do
 
       ExampleResult.add(5, 5)
       assert_receive {:span, span(name: "ExampleResult.add", attributes: attrs)}
-      assert Map.get(get_span_attributes(attrs), :result) == 10
+      assert Map.get(get_span_attributes(attrs), "result") == 10
     end
 
     test "supports nested results" do
       defmodule NestedResult do
         use OpenTelemetryDecorator
 
-        @decorate trace("ExampleResult.make_struct", include: [:a, :b, [:result, :sum]])
+        @decorate with_span("ExampleResult.make_struct", include: [:a, :b, [:result, :sum]])
         def make_struct(a, b) do
           %{sum: a + b}
         end
@@ -175,7 +181,7 @@ defmodule OpenTelemetryDecoratorTest do
 
       NestedResult.make_struct(5, 5)
       assert_receive {:span, span(name: "ExampleResult.make_struct", attributes: attrs)}
-      assert Map.get(get_span_attributes(attrs), :result_sum) == 10
+      assert Map.get(get_span_attributes(attrs), "result_sum") == 10
     end
 
     test "does not include anything unless specified" do
@@ -186,7 +192,7 @@ defmodule OpenTelemetryDecoratorTest do
 
     test "records an exception event" do
       try do
-        Example.with_exception()
+        Example.with_exception("fake file")
         flunk("Should have re-raised the exception")
       rescue
         e ->
@@ -196,17 +202,36 @@ defmodule OpenTelemetryDecoratorTest do
       end
     end
 
+    test "adds included input params on exception" do
+      try do
+        Example.with_exception("fake file")
+        flunk("Should have re-raised a File.read!/1 exception")
+      rescue
+        _ ->
+          expected = %{"file_name" => "fake file"}
+          assert_receive {:span, span(name: "Example.with_exception", attributes: attrs)}
+          assert get_span_attributes(attrs) == expected
+      end
+    end
+
     # The assumption here is that if an exception bubbles up
     # outside of the current span, we can consider it "unhandled"
     # and set the status to error.
     test "sets the status of the span to error" do
       try do
-        Example.with_exception()
+        Example.with_exception("fake file")
       rescue
         _ ->
           assert_receive {:span, span(name: "Example.with_exception", status: status)}
           assert {:status, :error, ""} = status
       end
+    end
+
+    test "can set the error attribute on the span" do
+      Example.with_error()
+      assert_receive {:span, span(name: "Example.with_error", attributes: attrs)}
+      expected = %{"error" => "ruh roh!"}
+      assert get_span_attributes(attrs) == expected
     end
   end
 end
