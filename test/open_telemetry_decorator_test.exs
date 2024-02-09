@@ -1,16 +1,22 @@
 defmodule OpenTelemetryDecoratorTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
   use OtelHelper
 
   doctest OpenTelemetryDecorator
 
   setup [:otel_pid_reporter]
 
-  describe "trace" do
+  describe "with_span" do
     setup do
       prev = Application.get_env(:open_telemetry_decorator, :attr_joiner)
       Application.put_env(:open_telemetry_decorator, :attr_joiner, "_")
       on_exit(fn -> Application.put_env(:open_telemetry_decorator, :attr_joiner, prev) end)
+    end
+
+    setup do
+      prev = Application.get_env(:open_telemetry_decorator, :attr_prefix)
+      Application.put_env(:open_telemetry_decorator, :attr_prefix, "app.")
+      on_exit(fn -> Application.put_env(:open_telemetry_decorator, :attr_prefix, prev) end)
     end
 
     defmodule Example do
@@ -27,6 +33,20 @@ defmodule OpenTelemetryDecoratorTest do
 
       @decorate with_span("Example.find", include: [:id, [:user, :name], :error, :_even, :result])
       def find(id) do
+        _even = rem(id, 2) == 0
+        user = %{id: id, name: "my user"}
+
+        case id do
+          1 ->
+            {:ok, user}
+
+          error ->
+            {:error, error}
+        end
+      end
+
+      @decorate with_span("Example.find_expand", include: [:user], expand_maps: true)
+      def find_expand(id) do
         _even = rem(id, 2) == 0
         user = %{id: id, name: "my user"}
 
@@ -57,6 +77,21 @@ defmodule OpenTelemetryDecoratorTest do
 
       @decorate with_span("Example.with_error")
       def with_error, do: OpenTelemetryDecorator.Attributes.set(:error, "ruh roh!")
+
+      @decorate with_span("Example.with_attributes", attributes: [foo: "bar", baz: "qux"])
+      def with_attributes, do: :ok
+
+      @decorate with_span("Example.with_attrs_and_include",
+                  attributes: [foo: "bar", baz: "qux"],
+                  include: [:opts]
+                )
+      def with_attrs_and_include(opts), do: {:ok, opts}
+
+      @decorate with_span("Example.with_attrs_and_conflicts",
+                  attributes: [foo: "bar"],
+                  include: [:foo]
+                )
+      def with_attrs_and_conflicts(foo), do: {:ok, foo}
     end
 
     test "does not modify inputs or function result" do
@@ -73,7 +108,7 @@ defmodule OpenTelemetryDecoratorTest do
                         attributes: attrs
                       )}
 
-      assert %{"count" => 2} = get_span_attributes(attrs)
+      assert %{"app.count" => 2} = get_span_attributes(attrs)
 
       assert_receive {:span,
                       span(
@@ -82,7 +117,7 @@ defmodule OpenTelemetryDecoratorTest do
                         attributes: attrs
                       )}
 
-      assert %{"id" => 1} = get_span_attributes(attrs)
+      assert %{"app.id" => 1} = get_span_attributes(attrs)
 
       assert_receive {:span,
                       span(
@@ -91,37 +126,43 @@ defmodule OpenTelemetryDecoratorTest do
                         attributes: attrs
                       )}
 
-      assert %{"id" => 2} = get_span_attributes(attrs)
+      assert %{"app.id" => 2} = get_span_attributes(attrs)
     end
 
     test "handles simple attributes" do
       Example.find(1)
       assert_receive {:span, span(name: "Example.find", attributes: attrs)}
-      assert %{"id" => 1} = get_span_attributes(attrs)
+      assert %{"app.id" => 1} = get_span_attributes(attrs)
     end
 
     test "handles nested attributes" do
       Example.find(1)
       assert_receive {:span, span(name: "Example.find", attributes: attrs)}
-      assert %{"user_name" => "my user"} = get_span_attributes(attrs)
+      assert %{"app.user_name" => "my user"} = get_span_attributes(attrs)
+    end
+
+    test "handles nested attributes when expand_maps is set" do
+      Example.find_expand(1)
+      assert_receive {:span, span(name: "Example.find_expand", attributes: attrs)}
+      assert %{"app.user_id" => 1, "app.user_name" => "my user"} = get_span_attributes(attrs)
     end
 
     test "handles maps with string keys" do
       Example.parse_params(%{"id" => 12})
       assert_receive {:span, span(name: "Example.parse_params", attributes: attrs)}
-      assert %{"params_id" => 12} = get_span_attributes(attrs)
+      assert %{"app.params_id" => 12} = get_span_attributes(attrs)
     end
 
     test "handles handles underscored attributes" do
       Example.find(2)
       assert_receive {:span, span(name: "Example.find", attributes: attrs)}
-      assert %{"even" => true} = get_span_attributes(attrs)
+      assert %{"app.even" => true} = get_span_attributes(attrs)
     end
 
     test "converts atoms to strings" do
       Example.step(:two)
       assert_receive {:span, span(name: "Example.step", attributes: attrs)}
-      assert %{"id" => ":two"} = get_span_attributes(attrs)
+      assert %{"app.id" => ":two"} = get_span_attributes(attrs)
     end
 
     test "does not include result unless asked for" do
@@ -151,7 +192,7 @@ defmodule OpenTelemetryDecoratorTest do
       assert {:ok, 3} = OverwriteExample.param_override(1, 1)
 
       assert_receive {:span, span(name: "param_override", attributes: attrs)}
-      assert Map.get(get_span_attributes(attrs), "x") == 1
+      assert Map.get(get_span_attributes(attrs), "app.x") == 1
     end
 
     test "overwrites the default result value" do
@@ -166,7 +207,7 @@ defmodule OpenTelemetryDecoratorTest do
 
       ExampleResult.add(5, 5)
       assert_receive {:span, span(name: "ExampleResult.add", attributes: attrs)}
-      assert Map.get(get_span_attributes(attrs), "result") == 10
+      assert Map.get(get_span_attributes(attrs), "app.result") == 10
     end
 
     test "supports nested results" do
@@ -181,7 +222,7 @@ defmodule OpenTelemetryDecoratorTest do
 
       NestedResult.make_struct(5, 5)
       assert_receive {:span, span(name: "ExampleResult.make_struct", attributes: attrs)}
-      assert Map.get(get_span_attributes(attrs), "result_sum") == 10
+      assert Map.get(get_span_attributes(attrs), "app.result_sum") == 10
     end
 
     test "does not include anything unless specified" do
@@ -208,7 +249,7 @@ defmodule OpenTelemetryDecoratorTest do
         flunk("Should have re-raised a File.read!/1 exception")
       rescue
         _ ->
-          expected = %{"file_name" => "fake file"}
+          expected = %{"app.file_name" => "fake file"}
           assert_receive {:span, span(name: "Example.with_exception", attributes: attrs)}
           assert get_span_attributes(attrs) == expected
       end
@@ -232,6 +273,81 @@ defmodule OpenTelemetryDecoratorTest do
       assert_receive {:span, span(name: "Example.with_error", attributes: attrs)}
       expected = %{"error" => "ruh roh!"}
       assert get_span_attributes(attrs) == expected
+    end
+
+    test "can set the span.kind on the span" do
+      defmodule SpanKinds do
+        use OpenTelemetryDecorator
+
+        @decorate with_span("SpanKinds.producer", kind: :producer)
+        def producer() do
+          :ok
+        end
+
+        @decorate with_span("SpanKinds.consumer", kind: :consumer)
+        def consumer() do
+          :ok
+        end
+
+        @decorate with_span("SpanKinds.internal", kind: :internal)
+        def internal() do
+          :ok
+        end
+
+        @decorate with_span("SpanKinds.client", kind: :client)
+        def client() do
+          :ok
+        end
+
+        @decorate with_span("SpanKinds.server", kind: :server)
+        def server() do
+          :ok
+        end
+
+        @decorate with_span("SpanKinds.invalid", kind: :invalid)
+        def invalid() do
+          :ok
+        end
+      end
+
+      SpanKinds.producer()
+      assert_receive {:span, span(name: "SpanKinds.producer", kind: :producer)}
+
+      SpanKinds.consumer()
+      assert_receive {:span, span(name: "SpanKinds.consumer", kind: :consumer)}
+
+      SpanKinds.client()
+      assert_receive {:span, span(name: "SpanKinds.client", kind: :client)}
+
+      SpanKinds.server()
+      assert_receive {:span, span(name: "SpanKinds.server", kind: :server)}
+
+      SpanKinds.internal()
+      assert_receive {:span, span(name: "SpanKinds.internal", kind: :internal)}
+
+      # using an invalid span.kind will default to :internal
+      SpanKinds.invalid()
+      assert_receive {:span, span(name: "SpanKinds.invalid", kind: :internal)}
+    end
+
+    test "can set attributes on the span" do
+      Example.with_attributes()
+      assert_receive {:span, span(name: "Example.with_attributes", attributes: attrs)}
+      assert %{"app.baz" => "qux", "app.foo" => "bar"} == get_span_attributes(attrs)
+    end
+
+    test "can set attributes and input params on the span" do
+      Example.with_attrs_and_include(:include_me)
+      assert_receive {:span, span(name: "Example.with_attrs_and_include", attributes: attrs)}
+
+      assert %{"app.baz" => "qux", "app.foo" => "bar", "app.opts" => ":include_me"} ==
+               get_span_attributes(attrs)
+    end
+
+    test "can set attributes and input params on the span, where attributes win with conflicting names" do
+      Example.with_attrs_and_conflicts("not_bar")
+      assert_receive {:span, span(name: "Example.with_attrs_and_conflicts", attributes: attrs)}
+      assert %{"app.foo" => "bar"} == get_span_attributes(attrs)
     end
   end
 end

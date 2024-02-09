@@ -14,6 +14,8 @@ defmodule OpenTelemetryDecorator do
   alias OpenTelemetryDecorator.Attributes
   alias OpenTelemetryDecorator.Validator
 
+  @default_expand_maps Application.compile_env(:open_telemetry_decorator, :expand_maps, false)
+
   def trace(span_name, opts \\ [], body, context), do: with_span(span_name, opts, body, context)
 
   @doc """
@@ -40,18 +42,21 @@ defmodule OpenTelemetryDecorator do
   """
   def with_span(span_name, opts \\ [], body, context) do
     include = Keyword.get(opts, :include, [])
+    kind = get_kind(opts)
+    decorator_attributes = Keyword.get(opts, :attributes, [])
+    expand_maps = Keyword.get(opts, :expand_maps, @default_expand_maps)
     Validator.validate_args(span_name, include)
 
     quote location: :keep do
       require OpenTelemetry.Tracer, as: Tracer
       require OpenTelemetry.Span, as: Span
 
-      Tracer.with_span unquote(span_name) do
+      Tracer.with_span unquote(span_name), %{kind: unquote(kind)} do
         span_context = Tracer.current_span_ctx()
 
         input_params =
           Kernel.binding()
-          |> Attributes.get(unquote(include))
+          |> Attributes.get(unquote(include), unquote(expand_maps))
           |> Keyword.delete(:result)
 
         Attributes.set(input_params)
@@ -62,12 +67,13 @@ defmodule OpenTelemetryDecorator do
           attrs =
             Kernel.binding()
             |> Keyword.put(:result, result)
-            |> Attributes.get(unquote(include))
+            |> Attributes.get(unquote(include), unquote(expand_maps))
             |> Keyword.merge(input_params)
             |> Enum.map(fn {k, v} -> {Atom.to_string(k), v} end)
 
           # Called functions can mess up Tracer's current span context, so ensure we at least write to ours
           Attributes.set(span_context, attrs)
+          Attributes.set(span_context, unquote(decorator_attributes))
 
           result
         rescue
@@ -82,5 +88,12 @@ defmodule OpenTelemetryDecorator do
     e in ArgumentError ->
       target = "#{inspect(context.module)}.#{context.name}/#{context.arity} @decorate telemetry"
       reraise %ArgumentError{message: "#{target} #{e.message}"}, __STACKTRACE__
+  end
+
+  def get_kind(opts) do
+    case Keyword.get(opts, :kind, :internal) do
+      kind when kind in [:internal, :server, :client, :producer, :consumer] -> kind
+      _ -> :internal
+    end
   end
 end
