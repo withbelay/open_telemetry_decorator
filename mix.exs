@@ -37,7 +37,7 @@ defmodule OpenTelemetryDecorator.MixProject do
   defp deps do
     [
       {:credo, "~> 1.6", only: [:dev, :test], runtime: false},
-      {:decorator, "~> 1.4"},
+      {:decorator, github: "/withbelay/decorator", ref: "3f8be23bb3b60e8c49b525898492c2a52a2d5f62"},
       {:dialyxir, "~> 1.2", only: :dev, runtime: false},
       {:ex_doc, "~> 0.30.3", only: :dev, runtime: false},
       {:excoveralls, "~> 0.17.0", only: :test, runtime: false},
