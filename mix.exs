@@ -36,12 +36,12 @@ defmodule OpenTelemetryDecorator.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:credo, "~> 1.6", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.6", only: [:dev, :test]},
       {:decorator, github: "/withbelay/decorator", tag: "v1.4.1"},
-      {:dialyxir, "~> 1.2", only: :dev, runtime: false},
-      {:ex_doc, "~> 0.30.3", only: :dev, runtime: false},
-      {:excoveralls, "~> 0.18.0", only: :test, runtime: false},
-      {:opentelemetry_exporter, "~> 1.4", only: :test},
+      {:dialyxir, "~> 1.2", only: [:dev, :test]},
+      {:ex_doc, "~> 0.30.3", only: [:dev, :test]},
+      {:excoveralls, "~> 0.18.0", only: [:dev, :test]},
+      {:opentelemetry_exporter, "~> 1.4", only: [:dev, :test]},
       {:opentelemetry_api, "~> 1.2"},
       {:opentelemetry, "~> 1.3", only: :test}
     ]
